@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Universal OJ
 // @namespace    http://tampermonkey.net/
-// @version      1.0
+// @version      1.1
 // @description  OJ 代码编辑器
 // @author       Sunse666
 // @match        *://www.luogu.com.cn/problem/*
@@ -25,7 +25,6 @@
 
   console.log('[Universal OJ] 脚本启动');
 
-  //平台配置
   const platformConfigs = {
     luogu: {
       name: '洛谷',
@@ -44,13 +43,11 @@
       getProblemInfo: function() {
         let html = '';
         
-        //获取标题
         const titleEl = document.querySelector(this.selectors.title);
         if (titleEl) {
           html += `<h4 style="color:#89b4fa;font-size:15px;margin:0 0 15px 0;padding-bottom:8px;border-bottom:1px solid #45475a;">${escapeHtml(titleEl.textContent.trim())}</h4>`;
         }
 
-        //获取题目内容
         const contentEl = document.querySelector('.problem[data-v-3bac9eed]');
         if (contentEl) {
           const cloned = contentEl.cloneNode(true);
@@ -63,7 +60,6 @@
             h2.style.marginBottom = '8px';
           });
 
-          //处理代码块
           cloned.querySelectorAll('pre code').forEach(code => {
             code.style.background = '#11111b';
             code.style.padding = '12px';
@@ -75,7 +71,6 @@
           html += `<div class="problem-content" style="font-size:13px;line-height:1.8;color:#cdd6f4;">${cloned.innerHTML}</div>`;
         }
 
-        //处理样例
         const samples = document.querySelectorAll('.io-sample');
         if (samples.length > 0) {
           html += `<h5 style="color:#cba6f7;font-size:14px;margin-top:20px;margin-bottom:10px;">样例数据</h5>`;
@@ -386,16 +381,194 @@
 
         return false;
       }
+    },
+
+    jxau: {
+      name: 'JXAU OJ',
+      match: (url) => {
+        if (/luogu\.com\.cn|codeforces\.com|nowcoder\.com/.test(url)) {
+          return false;
+        }
+        return /\/(problem|contest)\//.test(url);
+      },
+      selectors: {
+        title: '.ivu-card-head .panel-title div[data-v-6e5e6c6e], .panel-title, .ivu-card-head span',
+        content: '#problem-content.markdown-body, .markdown-body, .ivu-card-body .panel-body',
+        buttonContainer: '.ivu-card-body, .panel-body',
+        submitBtn: 'button:has-text("提交"), button:has-text("Submit")',
+        codeEditor: '.CodeMirror, textarea[name="code"]',
+        problemId: () => {
+          const match = window.location.pathname.match(/\/problem\/(\d+)/);
+          return match ? match[1] : 'unknown';
+        }
+      },
+      getProblemInfo: function() {
+        try {
+          let html = '';
+          const titleElement = document.querySelector('.ivu-card-head .panel-title div[data-v-6e5e6c6e]') ||
+                              document.querySelector('.panel-title div') ||
+                              document.querySelector('.ivu-card-head span');
+          
+          if (titleElement) {
+            const title = titleElement.textContent.trim();
+            html += `<h4 style="color:#89b4fa;font-size:15px;margin:0 0 15px 0;padding-bottom:8px;border-bottom:1px solid #45475a;">${escapeHtml(title)}</h4>`;
+          }
+
+          const problemContent = document.querySelector('#problem-content.markdown-body');
+
+          if (problemContent) {
+            const clonedContent = problemContent.cloneNode(true);
+
+            clonedContent.querySelectorAll('button, input, textarea, select, .copy, .ivu-icon-clipboard').forEach(el => el.remove());
+            const sections = clonedContent.querySelectorAll('p.title');
+            sections.forEach(titleEl => {
+              const titleText = titleEl.textContent.trim();
+              
+              if (titleText.includes('Sample Input') || titleText.includes('Sample Output')) {
+                return;
+              }
+
+              titleEl.style.color = '#cba6f7';
+              titleEl.style.fontSize = '14px';
+              titleEl.style.fontWeight = 'bold';
+              titleEl.style.marginTop = '20px';
+              titleEl.style.marginBottom = '10px';
+              titleEl.style.paddingBottom = '6px';
+              titleEl.style.borderBottom = '1px solid #45475a';
+              titleEl.style.display = 'block';
+            });
+
+            clonedContent.querySelectorAll('p.content').forEach(contentEl => {
+              contentEl.style.color = '#cdd6f4';
+              contentEl.style.lineHeight = '1.8';
+              contentEl.style.marginBottom = '15px';
+              contentEl.style.display = 'block';
+
+              contentEl.querySelectorAll('span[style*="color"]').forEach(span => {
+                span.style.color = '#cdd6f4';
+              });
+            });
+
+            clonedContent.querySelectorAll('code').forEach(code => {
+              if (!code.closest('pre')) {
+                code.style.background = '#11111b';
+                code.style.padding = '2px 6px';
+                code.style.borderRadius = '4px';
+                code.style.color = '#f38ba8';
+                code.style.fontSize = '12px';
+                code.style.fontFamily = "'Consolas', 'Monaco', monospace";
+              }
+            });
+
+            clonedContent.querySelectorAll('pre').forEach(pre => {
+              if (!pre.closest('.sample-input') && !pre.closest('.sample-output')) {
+                pre.style.background = '#11111b';
+                pre.style.padding = '12px';
+                pre.style.borderRadius = '6px';
+                pre.style.color = '#a6e3a1';
+                pre.style.fontSize = '12px';
+                pre.style.fontFamily = "'Consolas', 'Monaco', monospace";
+                pre.style.overflowX = 'auto';
+                pre.style.margin = '10px 0';
+                pre.style.whiteSpace = 'pre';
+              }
+            });
+
+            const mainContent = clonedContent.cloneNode(true);
+            mainContent.querySelectorAll('.flex-container.sample, .sample-input, .sample-output').forEach(el => el.remove());
+            
+            html += `<div class="problem-markdown-content" style="font-size:13px;line-height:1.8;">${mainContent.innerHTML}</div>`;
+            const sampleContainers = problemContent.querySelectorAll('.flex-container.sample');
+            if (sampleContainers.length > 0) {
+              html += `<h5 style="color:#cba6f7;font-size:14px;margin-top:20px;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid #45475a;">样例数据</h5>`;
+              
+              sampleContainers.forEach((container, index) => {
+                const inputDiv = container.querySelector('.sample-input');
+                const outputDiv = container.querySelector('.sample-output');
+                
+                html += `<div style="margin-bottom:20px;">`;
+                html += `<p style="color:#f9e2af;font-weight:bold;font-size:13px;margin:10px 0 8px 0;">样例 ${index + 1}</p>`;
+                
+                if (inputDiv) {
+                  const inputPre = inputDiv.querySelector('pre');
+                  if (inputPre) {
+                    html += `<p style="color:#a6adc8;font-size:12px;margin:8px 0 4px 0;">输入：</p>`;
+                    html += `<pre style="background:#11111b;padding:10px;border-radius:6px;color:#a6e3a1;font-size:12px;font-family:'Consolas','Monaco',monospace;overflow:auto;white-space:pre;margin:0 0 12px 0;">${escapeHtml(inputPre.textContent)}</pre>`;
+                  }
+                }
+                
+                if (outputDiv) {
+                  const outputPre = outputDiv.querySelector('pre');
+                  if (outputPre) {
+                    html += `<p style="color:#a6adc8;font-size:12px;margin:8px 0 4px 0;">输出：</p>`;
+                    html += `<pre style="background:#11111b;padding:10px;border-radius:6px;color:#a6e3a1;font-size:12px;font-family:'Consolas','Monaco',monospace;overflow:auto;white-space:pre;margin:0;">${escapeHtml(outputPre.textContent)}</pre>`;
+                  }
+                }
+                
+                html += `</div>`;
+              });
+            }
+
+            return html;
+          }
+
+          return `<p style="color:#f38ba8;">无法获取题目内容</p>`;
+        } catch (e) {
+          console.error('[Universal OJ] JXAU 获取题目信息失败:', e);
+          return `<p style="color:#f38ba8;">题目信息加载失败: ${e.message}</p>`;
+        }
+      },
+      syncCode: function(code) {
+        const cmElement = document.querySelector('.CodeMirror');
+        if (cmElement && cmElement.CodeMirror) {
+          cmElement.CodeMirror.setValue(code);
+          console.log('[Universal OJ] 已通过 CodeMirror API 同步代码');
+          return true;
+        }
+
+        const textarea = document.querySelector('.CodeMirror textarea') || 
+                        document.querySelector('textarea[name="code"]') ||
+                        document.querySelector('#editor textarea');
+        
+        if (textarea) {
+          textarea.value = code;
+          textarea.dispatchEvent(new Event('input', { bubbles: true }));
+          textarea.dispatchEvent(new Event('change', { bubbles: true }));
+          console.log('[Universal OJ] 已通过 Textarea 同步代码');
+          return true;
+        }
+
+        return false;
+      }
     }
   };
 
   function detectPlatform() {
-    for (const [key, config] of Object.entries(platformConfigs)) {
-      if (config.match.test(window.location.href)) {
-        console.log(`[Universal OJ] 检测到平台: ${config.name}`);
-        return { key, ...config };
-      }
+    const url = window.location.href;
+    
+    if (platformConfigs.luogu.match.test(url)) {
+      console.log(`[Universal OJ] 检测到平台: 洛谷`);
+      return { key: 'luogu', ...platformConfigs.luogu };
     }
+    if (platformConfigs.codeforces.match.test(url)) {
+      console.log(`[Universal OJ] 检测到平台: Codeforces`);
+      return { key: 'codeforces', ...platformConfigs.codeforces };
+    }
+    if (platformConfigs.nowcoder.match.test(url)) {
+      console.log(`[Universal OJ] 检测到平台: 牛客网`);
+      return { key: 'nowcoder', ...platformConfigs.nowcoder };
+    }
+    
+    if (typeof platformConfigs.jxau.match === 'function') {
+      if (platformConfigs.jxau.match(url)) {
+        console.log(`[Universal OJ] 检测到平台: JXAU OJ`);
+        return { key: 'jxau', ...platformConfigs.jxau };
+      }
+    } else if (platformConfigs.jxau.match.test(url)) {
+      console.log(`[Universal OJ] 检测到平台: JXAU OJ`);
+      return { key: 'jxau', ...platformConfigs.jxau };
+    }
+    
     console.log('[Universal OJ] 未检测到支持的平台');
     return null;
   }
@@ -632,6 +805,36 @@
       background: #89b4fa;
       color: #1e1e2e;
     }
+    .uoj-open-btn {
+      display: inline-flex !important;
+      align-items: center;
+      gap: 6px;
+      padding: 10px 20px;
+      border: 1px solid #a6e3a1;
+      border-radius: 4px;
+      background: transparent;
+      color: #a6e3a1;
+      font-size: 14px;
+      cursor: pointer;
+      text-decoration: none;
+      transition: all 0.3s;
+      margin-left: 10px;
+      height: auto;
+      line-height: normal;
+      vertical-align: middle;
+    }
+    .uoj-open-btn:hover {
+      background: #a6e3a1;
+      color: #1e1e2e;
+      border-color: #a6e3a1;
+    }
+    .uoj-open-btn .icon {
+      display: flex;
+      align-items: center;
+    }
+    .uoj-open-btn .text {
+      font-weight: 500;
+    }
     .uoj-open-btn-luogu {
       display: inline-flex !important;
       align-items: center;
@@ -801,7 +1004,6 @@
     `;
     document.body.appendChild(div);
 
-    //事件绑定
     div.addEventListener('click', (e) => {
       if (e.target.dataset.action === 'close' || e.target === div) {
         closeEditor();
@@ -1538,172 +1740,123 @@
       return true;
     }
 
-    if (currentPlatform.key === 'nowcoder') {
-      const containers = [
-        document.querySelector('.question-operate'),
-        document.querySelector('.terminal-topic-operation'),
-        document.querySelector('.terminal-topic')
-      ];
+    let container = null;
+    let submitBtn = null;
 
-      for (const container of containers) {
+    const buttons = document.querySelectorAll('button');
+    for (const btn of buttons) {
+      const text = btn.textContent.toLowerCase();
+      if (text.includes('提交') || text.includes('submit')) {
+        submitBtn = btn;
+        container = btn.parentNode;
+        console.log('[Universal OJ] 找到提交按钮:', btn);
+        break;
+      }
+    }
+
+    if (!container && currentPlatform.selectors.buttonContainer) {
+      const selectors = currentPlatform.selectors.buttonContainer.split(',');
+      for (const selector of selectors) {
+        container = document.querySelector(selector.trim());
         if (container) {
-          console.log('[Universal OJ] 找到牛客按钮容器:', container);
-          
-          const btn = document.createElement('button');
-          btn.id = 'uojOpenBtn';
-          btn.style.cssText = `
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 8px 16px;
-            border: 1px solid #52c41a;
-            border-radius: 4px;
-            background: transparent;
-            color: #52c41a;
-            font-size: 14px;
-            cursor: pointer;
-            margin-left: 10px;
-            transition: all 0.3s;
-          `;
-          btn.innerHTML = `
-            <svg style="width:14px;height:14px;" viewBox="0 0 640 512" fill="currentColor">
-              <path d="M392.8 1.2c-17-4.9-34.7 5-39.6 22l-128 448c-4.9 17 5 34.7 22 39.6s34.7-5 39.6-22l128-448c4.9-17-5-34.7-22-39.6zm80.6 120.1c-12.5 12.5-12.5 32.8 0 45.3L562.7 256l-89.4 89.4c-12.5 12.5-12.5 32.8 0 45.3s32.8 12.5 45.3 0l112-112c12.5-12.5 12.5-32.8 0-45.3l-112-112c-12.5-12.5-32.8-12.5-45.3 0zm-306.7 0c-12.5-12.5-32.8-12.5-45.3 0l-112 112c-12.5 12.5-12.5 32.8 0 45.3l112 112c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L77.3 256l89.4-89.4c12.5-12.5 12.5-32.8 0-45.3z"/>
-            </svg>
-            高级编辑器
-          `;
-          btn.onmouseover = () => {
-            btn.style.background = '#52c41a';
-            btn.style.color = '#fff';
-          };
-          btn.onmouseout = () => {
-            btn.style.background = 'transparent';
-            btn.style.color = '#52c41a';
-          };
-          btn.addEventListener('click', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            openEditor();
-          });
-
-          container.appendChild(btn);
-          console.log('[Universal OJ] 牛客按钮添加成功');
-          return true;
+          console.log('[Universal OJ] 使用平台选择器找到容器:', selector);
+          break;
         }
       }
     }
 
-    if (currentPlatform.key === 'luogu') {
-      const containers = [
-        document.querySelector('.ide-toolbar .actions'),
-        document.querySelector('.problem .actions'),
-        document.querySelector('a[class*="title"]:has(.fa-paper-plane)')?.parentElement
-      ];
-
-      for (const container of containers) {
-        if (container) {
-          console.log('[Universal OJ] 找到按钮容器:', container);
-          
-          const btn = document.createElement('a');
-          btn.id = 'uojOpenBtn';
-          btn.className = 'uoj-open-btn-luogu title';
-          btn.href = 'javascript:void(0)';
-          btn.innerHTML = `
-            <span class="icon">
-              <svg class="svg-inline--fa fa-code" style="width:14px;height:14px;" viewBox="0 0 640 512">
-                <path fill="currentColor" d="M392.8 1.2c-17-4.9-34.7 5-39.6 22l-128 448c-4.9 17 5 34.7 22 39.6s34.7-5 39.6-22l128-448c4.9-17-5-34.7-22-39.6zm80.6 120.1c-12.5 12.5-12.5 32.8 0 45.3L562.7 256l-89.4 89.4c-12.5 12.5-12.5 32.8 0 45.3s32.8 12.5 45.3 0l112-112c12.5-12.5 12.5-32.8 0-45.3l-112-112c-12.5-12.5-32.8-12.5-45.3 0zm-306.7 0c-12.5-12.5-32.8-12.5-45.3 0l-112 112c-12.5 12.5-12.5 32.8 0 45.3l112 112c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L77.3 256l89.4-89.4c12.5-12.5 12.5-32.8 0-45.3z"/>
-              </svg>
-            </span>
-            <span class="text">高级编辑器</span>
-          `;
-          btn.addEventListener('click', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            openEditor();
-          });
-
-          container.appendChild(btn);
-          console.log('[Universal OJ] 按钮添加成功');
-          return true;
-        }
+    if (!container) {
+      switch(currentPlatform.key) {
+        case 'jxau':
+          container = document.querySelector('.ivu-row-flex .ivu-col-span-12:last-child') ||
+                    document.querySelector('#submit-code .ivu-card-body');
+          break;
+        case 'nowcoder':
+          container = document.querySelector('.question-btns') ||
+                    document.querySelector('.terminal-topic-operation') ||
+                    document.querySelector('.question-operate');
+          break;
+        case 'luogu':
+          container = document.querySelector('.operation') ||
+                    document.querySelector('.main .actions');
+          break;
+        case 'codeforces':
+          container = document.querySelector('.roundbox') ||
+                    document.querySelector('.problem-statement');
+          break;
       }
     }
 
-    if (currentPlatform.key === 'codeforces') {
-      const containers = [
-        document.querySelector('.second-level-menu'),
-        document.querySelector('.sidebox .rtable'),
-        document.querySelector('.problem-statement .header'),
-        document.querySelector('.roundbox.menu-box')
-      ];
-
-      for (const container of containers) {
-        if (container) {
-          const btn = document.createElement('div');
-          btn.style.cssText = "margin: 10px 0; display: inline-block; vertical-align: middle;";
-          
-          btn.innerHTML = `
-            <a id="uojOpenBtn" href="javascript:void(0)" class="uoj-cf-btn" style="
-              display: inline-flex;
-              align-items: center;
-              gap: 6px;
-              padding: 5px 12px;
-              border: 1px solid #FF591F;
-              border-radius: 4px;
-              background: #fff;
-              color: #FF591F;
-              font-size: 13px;
-              font-weight: bold;
-              text-decoration: none;
-              transition: all 0.3s;
-              cursor: pointer;
-              box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            ">
-              <svg style="width:14px;height:14px;" viewBox="0 0 640 512" fill="currentColor">
-                <path d="M392.8 1.2c-17-4.9-34.7 5-39.6 22l-128 448c-4.9 17 5 34.7 22 39.6s34.7-5 39.6-22l128-448c4.9-17-5-34.7-22-39.6zm80.6 120.1c-12.5 12.5-12.5 32.8 0 45.3L562.7 256l-89.4 89.4c-12.5 12.5-12.5 32.8 0 45.3s32.8 12.5 45.3 0l112-112c12.5-12.5 12.5-32.8 0-45.3l-112-112c-12.5-12.5-32.8-12.5-45.3 0zm-306.7 0c-12.5-12.5-32.8-12.5-45.3 0l-112 112c-12.5 12.5-12.5 32.8 0 45.3l112 112c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L77.3 256l89.4-89.4c12.5-12.5 12.5-32.8 0-45.3z"/>
-              </svg>
-              高级编辑器
-            </a>
-          `;
-          
-          const link = btn.querySelector('a');
-          link.onmouseover = () => { link.style.background = '#FF591F'; link.style.color = '#fff'; };
-          link.onmouseout = () => { link.style.background = '#fff'; link.style.color = '#FF591F'; };
-          link.onclick = (e) => { e.preventDefault(); openEditor(); };
-
-          if (container.tagName === 'UL') {
-            const li = document.createElement('li');
-            li.appendChild(btn);
-            container.appendChild(li);
-          } else {
-            container.appendChild(btn);
-          }
-          return true;
-        }
-      }
+    if (!container) {
+      console.warn('[Universal OJ] 未找到合适的按钮容器');
+      return false;
     }
 
-    console.log('[Universal OJ] 未找到合适的按钮容器');
-    return false;
+    const btn = document.createElement('button');
+    btn.id = 'uojOpenBtn';
+    btn.type = 'button';
+    btn.className = 'uoj-open-btn';
+    btn.innerHTML = '✏️ 高级编辑器';
+    
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openEditor();
+    });
+
+    if (submitBtn) {
+      submitBtn.parentNode.insertBefore(btn, submitBtn.nextSibling);
+      console.log('[Universal OJ] 按钮已插入到提交按钮后面');
+    } else {
+      container.appendChild(btn);
+      console.log('[Universal OJ] 按钮已追加到容器');
+    }
+
+    return true;
   }
 
   function init() {
     console.log('[Universal OJ] 开始初始化...');
+    console.log('[Universal OJ] 当前平台:', currentPlatform.name);
+    console.log('[Universal OJ] URL:', window.location.href);
+
+    const tryAddButton = () => {
+      if (addOpenButton()) {
+        console.log('[Universal OJ] ✅ 初始化成功');
+        return true;
+      }
+      return false;
+    };
 
     setTimeout(() => {
-      if (addOpenButton()) return;
+      if (tryAddButton()) return;
 
       let attempts = 0;
+      const maxAttempts = 20;
       const interval = setInterval(() => {
-        console.log(`[Universal OJ] 尝试添加按钮 (${attempts + 1}/20)`);
-        if (addOpenButton() || attempts >= 20) {
+        attempts++;
+        console.log(`[Universal OJ] 尝试添加按钮 (${attempts}/${maxAttempts})`);
+        
+        if (tryAddButton() || attempts >= maxAttempts) {
           clearInterval(interval);
-          if (attempts >= 20) {
-            console.error('[Universal OJ] 添加按钮失败，已达最大尝试次数');
+          if (attempts >= maxAttempts) {
+            console.error('[Universal OJ] ❌ 无法添加按钮，请检查页面结构');
           }
         }
-        attempts++;
       }, 1000);
-    }, 1000);
+    }, 2000);
+
+    const observer = new MutationObserver((mutations) => {
+      if (!document.getElementById('uojOpenBtn')) {
+        console.log('[Universal OJ] 检测到 DOM 变化，尝试重新添加按钮');
+        tryAddButton();
+      }
+    });
+
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
   }
 
   if (document.readyState === 'loading') {
