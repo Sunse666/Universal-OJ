@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Universal OJ
 // @namespace    http://tampermonkey.net/
-// @version      1.2
+// @version      1.3
 // @description  OJ 代码编辑器
 // @author       Sunse666
 // @match        *://www.luogu.com.cn/problem/*
@@ -16,6 +16,8 @@
 // @match        *://*/problem/*
 // @match        *://*/contest/*/problem/*
 // @grant        GM_addStyle
+// @grant        GM_xmlhttpRequest
+// @connect      cdn.luogu.com.cn
 // @require      https://cdn.bootcdn.net/ajax/libs/highlight.js/11.11.1/highlight.min.js
 // @require      https://cdn.bootcdn.net/ajax/libs/highlight.js/11.11.1/languages/go.min.js
 // @run-at       document-end
@@ -49,7 +51,7 @@
           html += `<h4 style="color:#89b4fa;font-size:15px;margin:0 0 15px 0;padding-bottom:8px;border-bottom:1px solid #45475a;">${escapeHtml(titleEl.textContent.trim())}</h4>`;
         }
 
-        const contentEl = document.querySelector('.problem[data-v-3bac9eed]');
+        const contentEl = document.querySelector('.problem');
         if (contentEl) {
           const cloned = contentEl.cloneNode(true);
           
@@ -634,7 +636,7 @@
         return /\/(problem|contest)\//.test(url);
       },
       selectors: {
-        title: '.ivu-card-head .panel-title div[data-v-6e5e6c6e], .panel-title, .ivu-card-head span',
+        title: '.ivu-card-head .panel-title div, .panel-title, .ivu-card-head span',
         content: '#problem-content.markdown-body, .markdown-body, .ivu-card-body .panel-body',
         buttonContainer: '.ivu-card-body, .panel-body',
         submitBtn: 'button:has-text("提交"), button:has-text("Submit")',
@@ -647,7 +649,7 @@
       getProblemInfo: function() {
         try {
           let html = '';
-          const titleElement = document.querySelector('.ivu-card-head .panel-title div[data-v-6e5e6c6e]') ||
+          const titleElement = document.querySelector('.ivu-card-head .panel-title div') ||
                               document.querySelector('.panel-title div') ||
                               document.querySelector('.ivu-card-head span');
           
@@ -751,13 +753,13 @@
               });
             }
 
-            return html;
+            return processLuoguImagesInHTML(html);
           }
 
-          return `<p style="color:#f38ba8;">无法获取题目内容</p>`;
+          return Promise.resolve(`<p style="color:#f38ba8;">无法获取题目内容</p>`);
         } catch (e) {
           console.error('[Universal OJ] JXAU 获取题目信息失败:', e);
-          return `<p style="color:#f38ba8;">题目信息加载失败: ${e.message}</p>`;
+          return Promise.resolve(`<p style="color:#f38ba8;">题目信息加载失败: ${e.message}</p>`);
         }
       },
       syncCode: function(code) {
@@ -785,6 +787,129 @@
     }
   };
 
+  const LUOGU_CDN = 'cdn.luogu.com.cn';
+  const LUOGU_URL_RE = /https:\/\/cdn\.luogu\.com\.cn\/[^\s"'<>)]+\.(?:png|jpg|jpeg|gif|webp|svg|bmp)/gi;
+
+  function fetchImageAsDataURI(url) {
+    return new Promise((resolve, reject) => {
+      console.log('[Universal OJ] XHR 请求图片:', url.substring(0, 80));
+      GM_xmlhttpRequest({
+        method: 'GET',
+        url: url,
+        responseType: 'blob',
+        timeout: 15000,
+        onload: function(resp) {
+          if (resp.status >= 200 && resp.status < 300 && resp.response) {
+            const reader = new FileReader();
+            reader.onloadend = function() {
+              console.log('[Universal OJ] 图片转 dataURI 成功');
+              resolve(reader.result);
+            };
+            reader.onerror = function() {
+              console.warn('[Universal OJ] FileReader 失败:', url);
+              reject(new Error('FileReader error'));
+            };
+            reader.readAsDataURL(resp.response);
+          } else {
+            console.warn('[Universal OJ] 图片请求失败 HTTP ' + resp.status + ':', url);
+            reject(new Error('HTTP ' + resp.status));
+          }
+        },
+        onerror: function(err) {
+          console.error('[Universal OJ] 图片请求网络错误:', url, err);
+          reject(err);
+        },
+        ontimeout: function() {
+          console.warn('[Universal OJ] 图片请求超时:', url);
+          reject(new Error('timeout'));
+        }
+      });
+    });
+  }
+
+  function processLuoguImagesInHTML(html) {
+    return new Promise(resolve => {
+      const div = document.createElement('div');
+      div.innerHTML = html;
+
+      const urlSet = new Set();
+      const textNodes = [];
+
+      div.querySelectorAll('img[src*="' + LUOGU_CDN + '"]').forEach(img => {
+        urlSet.add(img.src);
+      });
+
+      const walker = document.createTreeWalker(div, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode()) {
+        const node = walker.currentNode;
+        if (node.textContent.indexOf(LUOGU_CDN) !== -1) {
+          textNodes.push(node);
+          let m;
+          LUOGU_URL_RE.lastIndex = 0;
+          while ((m = LUOGU_URL_RE.exec(node.textContent)) !== null) {
+            urlSet.add(m[0]);
+          }
+        }
+      }
+
+      const urls = Array.from(urlSet);
+      if (urls.length === 0) return resolve(html);
+
+      console.log('[Universal OJ] 扫描到 ' + urls.length + ' 个洛谷图片 URL，开始转换...');
+
+      const promises = urls.map(url =>
+        fetchImageAsDataURI(url).then(dataURI => [url, dataURI]).catch(() => null)
+      );
+
+      Promise.all(promises).then(results => {
+        const urlMap = {};
+        for (const pair of results) {
+          if (pair) urlMap[pair[0]] = pair[1];
+        }
+
+        div.querySelectorAll('img[src*="' + LUOGU_CDN + '"]').forEach(img => {
+          if (urlMap[img.src]) img.src = urlMap[img.src];
+        });
+
+        for (const textNode of textNodes) {
+          let text = textNode.textContent;
+          let fragment = '';
+          let lastIdx = 0;
+          LUOGU_URL_RE.lastIndex = 0;
+          let m;
+          while ((m = LUOGU_URL_RE.exec(text)) !== null) {
+            const url = m[0];
+            const dataURI = urlMap[url];
+            fragment += escapeHtml(text.substring(lastIdx, m.index));
+            if (dataURI) {
+              fragment += '<img src="' + dataURI + '" style="max-width:100%;height:auto;display:block;margin:15px auto;border-radius:6px;border:1px solid #45475a;">';
+            }
+            lastIdx = LUOGU_URL_RE.lastIndex;
+          }
+          fragment += escapeHtml(text.substring(lastIdx));
+          const span = document.createElement('span');
+          span.innerHTML = fragment;
+          textNode.parentNode.replaceChild(span, textNode);
+        }
+
+        resolve(div.innerHTML);
+      });
+    });
+  }
+
+  function fixPageLuoguImages() {
+    const contentEl = document.getElementById('problem-content');
+    if (!contentEl || contentEl.dataset.uojImgDone === '1') return;
+    contentEl.dataset.uojImgDone = '1';
+    console.log('[Universal OJ] 开始扫描页面洛谷图片...');
+    processLuoguImagesInHTML(contentEl.innerHTML).then(newHTML => {
+      if (newHTML !== contentEl.innerHTML) {
+        contentEl.innerHTML = newHTML;
+        console.log('[Universal OJ] 页面洛谷图片已替换');
+      }
+    });
+  }
+
   function detectPlatform() {
     const url = window.location.href;
     
@@ -809,9 +934,6 @@
         console.log(`[Universal OJ] 检测到平台: JXAU OJ`);
         return { key: 'jxau', ...platformConfigs.jxau };
       }
-    } else if (platformConfigs.jxau.match.test(url)) {
-      console.log(`[Universal OJ] 检测到平台: JXAU OJ`);
-      return { key: 'jxau', ...platformConfigs.jxau };
     }
     
     console.log('[Universal OJ] 未检测到支持的平台');
@@ -1153,10 +1275,6 @@
         color: #ffa657 !important;
         font-weight: 600 !important;
     }
-    .hljs-variable-enhanced {
-        color: #79c0ff !important;
-        font-weight: 500 !important;
-    }
     .bracket-level-0 { color: #FFD700; font-weight: bold; }
     .bracket-level-1 { color: #DA70D6; font-weight: bold; }
     .bracket-level-2 { color: #87CEEB; font-weight: bold; }
@@ -1236,7 +1354,10 @@
     python: 'language-python'
   };
 
-  const autoCompleteData = {
+  let _autoCompleteData = null;
+  function getAutoCompleteData() {
+    if (_autoCompleteData) return _autoCompleteData;
+    _autoCompleteData = {
     cpp: {
       keywords: ['alignas', 'alignof', 'and', 'and_eq', 'asm', 'auto', 'bitand', 'bitor', 'bool', 'break', 'case', 'catch', 'char', 'char8_t', 'char16_t', 'char32_t', 'class', 'compl', 'concept', 'const', 'consteval', 'constexpr', 'constinit', 'const_cast', 'continue', 'co_await', 'co_return', 'co_yield', 'decltype', 'default', 'delete', 'do', 'double', 'dynamic_cast', 'else', 'enum', 'explicit', 'export', 'extern', 'false', 'float', 'for', 'friend', 'goto', 'if', 'inline', 'int', 'long', 'mutable', 'namespace', 'new', 'noexcept', 'not', 'not_eq', 'nullptr', 'operator', 'or', 'or_eq', 'private', 'protected', 'public', 'register', 'reinterpret_cast', 'requires', 'return', 'short', 'signed', 'sizeof', 'static', 'static_assert', 'static_cast', 'struct', 'switch', 'template', 'this', 'thread_local', 'throw', 'true', 'try', 'typedef', 'typeid', 'typename', 'union', 'unsigned', 'using', 'virtual', 'void', 'volatile', 'wchar_t', 'while', 'xor', 'xor_eq'],
       types: ['vector', 'string', 'map', 'set', 'unordered_map', 'unordered_set', 'list', 'deque', 'queue', 'stack', 'priority_queue', 'pair', 'tuple', 'array', 'bitset', 'unique_ptr', 'shared_ptr', 'weak_ptr', 'optional', 'variant', 'any', 'function', 'bind', 'cin', 'cout', 'cerr', 'clog', 'endl', 'flush', 'ws', 'boolalpha', 'noboolalpha', 'showbase', 'noshowbase', 'showpoint', 'noshowpoint', 'showpos', 'noshowpos', 'skipws', 'noskipws', 'uppercase', 'nouppercase', 'unitbuf', 'nounitbuf', 'internal', 'left', 'right', 'dec', 'hex', 'oct', 'fixed', 'scientific', 'hexfloat', 'defaultfloat', 'make_pair', 'make_tuple', 'get', 'swap', 'move', 'forward', 'min', 'max', 'minmax', 'clamp', 'size', 'ssize', 'empty', 'data'],
@@ -2350,16 +2471,16 @@
         'supported': 'Intl.supportedValuesOf()'
       }
     }
-  };
+    };
+    return _autoCompleteData;
+  }
 
   let currentLang = 'cpp';
   let problemId = null;
 
   function escapeHtml(text) {
     if (!text) return '';
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+    return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
   function createLightbox() {
@@ -2420,10 +2541,14 @@
     document.getElementById('uojConfirmBtn').addEventListener('click', handleConfirm);
 
     const editor = document.getElementById('uojCodeEditor');
+    let highlightRafId = 0;
     editor.addEventListener('input', () => {
-        updateCode();
-        syncScroll();
-        setTimeout(triggerAutocomplete, 0);
+        cancelAnimationFrame(highlightRafId);
+        highlightRafId = requestAnimationFrame(() => {
+            updateCode();
+            syncScroll();
+            setTimeout(triggerAutocomplete, 0);
+        });
     });
     editor.addEventListener('scroll', syncScroll);
     editor.addEventListener('keydown', handleKey);
@@ -2704,33 +2829,20 @@
       if (!editor || !highlightCode) return;
 
       let content = editor.value;
-      
-      if (content.endsWith('\n')) {
-          highlightCode.textContent = content + ' ';
-      } else {
-          highlightCode.textContent = content + '\n ';
-      }
-
-      highlightCode.removeAttribute('data-highlighted');
-      highlightCode.className = `${langClasses[currentLang]} hljs`;
 
       try {
           if (typeof hljs === 'undefined') {
-              console.error('[Universal OJ] highlight.js 未加载');
               return;
           }
-          
-          console.log('[Universal OJ] 代码高亮:', currentLang);
-          hljs.highlightElement(highlightCode);
-          console.log('[Universal OJ] 高亮完成');
-          
+
+          highlightCode.className = `${langClasses[currentLang]} hljs`;
+          const result = hljs.highlight(content, { language: currentLang });
+          highlightCode.innerHTML = result.value;
+
           requestAnimationFrame(() => {
               const code = document.getElementById('uojHighlightCode');
               if (code) {
-                  console.log('[Universal OJ] 高亮后的HTML:', code.innerHTML.substring(0, 200));
-                  console.log('[Universal OJ] 应用增强样式');
                   applyAllEnhancements(code);
-                  console.log('[Universal OJ] 增强后的HTML:', code.innerHTML.substring(0, 200));
               }
           });
       } catch (e) {
@@ -3102,7 +3214,7 @@
   function getAutocompleteItems(word, lang) {
     if (!word || word.length < 2) return [];
     
-    const data = autoCompleteData[lang];
+    const data = getAutoCompleteData()[lang];
     if (!data) return [];
     
     const items = [];
@@ -3527,6 +3639,12 @@
     console.log('[Universal OJ] 开始初始化...');
     console.log('[Universal OJ] 当前平台:', currentPlatform.name);
     console.log('[Universal OJ] URL:', window.location.href);
+
+    if (currentPlatform.key === 'jxau') {
+      fixPageLuoguImages();
+      setTimeout(fixPageLuoguImages, 1500);
+      setTimeout(fixPageLuoguImages, 3500);
+    }
 
     const tryAddButton = () => {
       if (addOpenButton()) {
